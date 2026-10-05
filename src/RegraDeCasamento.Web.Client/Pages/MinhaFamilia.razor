@@ -1,0 +1,131 @@
+@page "/familia"
+@inject ApiDoApp Api
+@inject Sessao Sessao
+@inject NavigationManager Navegacao
+
+<PageTitle>Minha família · Regra de Casamento</PageTitle>
+
+@if (_familia is null)
+{
+    <MensagensDeErro Erros="_erros" />
+    <MudProgressCircular Indeterminate="true" Class="@(_erros.Count > 0 ? "d-none" : "")" />
+}
+else
+{
+    <MudStack Spacing="4">
+        <MudPaper Class="pa-6" Elevation="1">
+            <MudText Typo="Typo.h5">@_familia.Nome</MudText>
+            <MudText Typo="Typo.body2" Class="mt-2">Código da família (passe para o outro adulto e use no login das crianças):</MudText>
+            <MudText Typo="Typo.h4" Class="codigo-da-familia mt-1">@_familia.Codigo</MudText>
+        </MudPaper>
+
+        <MudPaper Class="pa-6" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Membros</MudText>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                @foreach (var membro in _familia.Membros)
+                {
+                    <MudChip T="string" Color="@(membro.Perfil == PerfilDeAcesso.Adulto ? Color.Primary : Color.Secondary)" Variant="Variant.Outlined">
+                        @membro.Nome @(membro.Apelido is null ? "" : $"({membro.Apelido})")
+                    </MudChip>
+                }
+            </MudStack>
+        </MudPaper>
+
+        <MudPaper Class="pa-6" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Pedidos para entrar</MudText>
+            @if (_pedidos.Count == 0)
+            {
+                <MudText Typo="Typo.body2">Nenhum pedido esperando resposta.</MudText>
+            }
+            @foreach (var pedido in _pedidos)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                    <MudText Class="flex-grow-1">@pedido.NomeDoSolicitante</MudText>
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Disabled="_enviando"
+                               OnClick="@(() => ResponderAsync(() => Api.AprovarPedidoAsync(pedido.Id)))">Aprovar</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_enviando"
+                               OnClick="@(() => ResponderAsync(() => Api.RecusarPedidoAsync(pedido.Id)))">Recusar</MudButton>
+                </MudStack>
+            }
+            <MensagensDeErro Erros="_errosDosPedidos" />
+        </MudPaper>
+
+        <MudPaper Class="pa-6" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Criar a conta de uma criança</MudText>
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_nomeDaCrianca" Label="Nome" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_apelido" Label="Apelido" Variant="Variant.Outlined"
+                              HelperText="É com ele que a criança entra. Letras, números, ponto, hífen e sublinhado, sem espaço." />
+                <MudTextField @bind-Value="_pin" Label="PIN" InputType="InputType.Password" Variant="Variant.Outlined" HelperText="De 4 a 6 números." />
+                <MensagensDeErro Erros="_errosDaCrianca" />
+                @if (_criancaCriada is not null)
+                {
+                    <MudAlert Severity="Severity.Success">
+                        Conta criada. Para entrar, @_criancaCriada.Nome usa o código <b>@_familia.Codigo</b>, o apelido <b>@_criancaCriada.Apelido</b> e o PIN.
+                    </MudAlert>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_enviando" OnClick="CriarCriancaAsync">Criar conta</MudButton>
+            </MudStack>
+        </MudPaper>
+    </MudStack>
+}
+
+@code {
+    private FamiliaDto? _familia;
+    private List<PedidoDeEntradaDto> _pedidos = [];
+    private IReadOnlyList<string> _erros = [];
+    private IReadOnlyList<string> _errosDosPedidos = [];
+    private IReadOnlyList<string> _errosDaCrianca = [];
+    private CriancaCriadaDto? _criancaCriada;
+    private string _nomeDaCrianca = "";
+    private string _apelido = "";
+    private string _pin = "";
+    private bool _enviando;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eu = await Sessao.ObterAsync();
+        if (eu?.Perfil != PerfilDeAcesso.Adulto)
+        {
+            // Esta tela é só de adultos; o servidor também recusa (403) se alguém tentar.
+            Navegacao.NavigateTo("");
+            return;
+        }
+
+        await CarregarAsync();
+    }
+
+    private async Task CarregarAsync()
+    {
+        var familia = await Api.MinhaFamiliaAsync();
+        var pedidos = await Api.PedidosDeEntradaAsync();
+        _erros = [.. familia.Erros, .. pedidos.Erros];
+        _familia = familia.Valor;
+        _pedidos = pedidos.Valor ?? [];
+    }
+
+    private async Task ResponderAsync(Func<Task<Resposta<bool>>> responder)
+    {
+        _enviando = true;
+        var resposta = await responder();
+        _errosDosPedidos = resposta.Erros;
+        await CarregarAsync();
+        _enviando = false;
+    }
+
+    private async Task CriarCriancaAsync()
+    {
+        _enviando = true;
+        var resposta = await Api.AdicionarCriancaAsync(new DadosDaNovaCrianca(_nomeDaCrianca, _apelido, _pin));
+        _errosDaCrianca = resposta.Erros;
+        _criancaCriada = resposta.Valor;
+
+        if (resposta.DeuCerto)
+        {
+            _nomeDaCrianca = _apelido = _pin = "";
+            await CarregarAsync();
+        }
+
+        _enviando = false;
+    }
+}

@@ -1,0 +1,185 @@
+@inject ApiDoApp Api
+
+@* As contas do mês: lançar, marcar como paga (quem pagou e quando, R8) e desfazer (R10). *@
+
+@if (_pagando is not null)
+{
+    <MudPaper Outlined="true" Class="pa-4 mb-4">
+        <MudText Typo="Typo.subtitle1" GutterBottom="true">Pagar: @_pagando.Descricao (@Reais(_pagando.Valor))</MudText>
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="3" AlignItems="AlignItems.Center">
+            <MudSelect T="Guid" @bind-Value="_pagaPorId" Label="Quem pagou" Variant="Variant.Outlined" Style="min-width: 10rem">
+                @foreach (var adulto in Adultos)
+                {
+                    <MudSelectItem Value="adulto.Id">@adulto.Nome</MudSelectItem>
+                }
+            </MudSelect>
+            <MudDatePicker @bind-Date="_pagaEm" Label="Pago em" Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" />
+            <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="_enviando" OnClick="ConfirmarPagamentoAsync">Confirmar</MudButton>
+            <MudButton Variant="Variant.Text" OnClick="@(() => _pagando = null)">Cancelar</MudButton>
+        </MudStack>
+    </MudPaper>
+}
+
+<MensagensDeErro Erros="_erros" />
+
+@if (_contas.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="mb-4">Nenhuma conta neste mês.</MudText>
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true" Class="mb-4">
+        <thead>
+            <tr><th>Conta</th><th>Vence</th><th>Valor</th><th>Dono</th><th>Situação</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var conta in _contas)
+            {
+                <tr>
+                    <td>@conta.Descricao</td>
+                    <td>@conta.Vencimento.ToString("dd/MM")</td>
+                    <td>@Reais(conta.Valor)</td>
+                    <td>@conta.Dono</td>
+                    <td>
+                        @if (conta.Situacao == SituacaoDeConta.Paga)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success">Paga por @conta.PagaPor em @conta.PagaEm?.ToString("dd/MM")</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning">A pagar</MudChip>
+                        }
+                    </td>
+                    <td>
+                        @if (!PossoAlterar(conta))
+                        {
+                            @* Conta do outro adulto: dá para ver, mas só o dono altera (R37). *@
+                            <MudText Typo="Typo.caption">Só @conta.Dono altera</MudText>
+                        }
+                        else if (conta.Situacao == SituacaoDeConta.Paga)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="_enviando" OnClick="@(() => DesfazerAsync(conta))">Desfazer</MudButton>
+                        }
+                        else
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" OnClick="@(() => ComecarPagamento(conta))">Pagar</MudButton>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+<MudText Typo="Typo.subtitle1" GutterBottom="true">Nova conta</MudText>
+<MudStack Spacing="3">
+    <MudTextField @bind-Value="_descricao" Label="Descrição" Placeholder="Aluguel, luz, escola..." Variant="Variant.Outlined" />
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="3">
+        <MudNumericField T="decimal" @bind-Value="_valor" Label="Valor (R$)" Variant="Variant.Outlined" Min="0" Format="N2" Culture="PortuguesDoBrasil" />
+        <MudDatePicker @bind-Date="_vencimento" Label="Vencimento" Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" />
+        <MudSelect T="Guid?" @bind-Value="_donoId" Label="De quem é" Variant="Variant.Outlined" Style="min-width: 10rem">
+            @* Cada um lança só o que é da casa ou o que é seu (R37). *@
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Casa</MudSelectItem>
+            <MudSelectItem T="Guid?" Value="@((Guid?)MeuMembroId)">Minha</MudSelectItem>
+        </MudSelect>
+    </MudStack>
+    <MensagensDeErro Erros="_errosDaNova" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_enviando" OnClick="LancarAsync">Lançar conta</MudButton>
+</MudStack>
+
+@code {
+    private static readonly System.Globalization.CultureInfo PortuguesDoBrasil = System.Globalization.CultureInfo.GetCultureInfo("pt-BR");
+
+    [Parameter, EditorRequired]
+    public int Ano { get; set; }
+
+    [Parameter, EditorRequired]
+    public int Mes { get; set; }
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MembroDto> Adultos { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public Guid MeuMembroId { get; set; }
+
+    private List<DespesaDto> _contas = [];
+    private IReadOnlyList<string> _erros = [];
+    private IReadOnlyList<string> _errosDaNova = [];
+    private bool _enviando;
+    private (int Ano, int Mes) _mesCarregado;
+
+    private string _descricao = "";
+    private decimal _valor;
+    private DateTime? _vencimento = DateTime.Today;
+    private Guid? _donoId;
+
+    private DespesaDto? _pagando;
+    private Guid _pagaPorId;
+    private DateTime? _pagaEm = DateTime.Today;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_mesCarregado != (Ano, Mes))
+        {
+            _mesCarregado = (Ano, Mes);
+            await CarregarAsync();
+        }
+    }
+
+    private async Task CarregarAsync()
+    {
+        var resposta = await Api.DespesasAsync(Ano, Mes);
+        _erros = resposta.Erros;
+        _contas = resposta.Valor ?? [];
+    }
+
+    private async Task LancarAsync()
+    {
+        _enviando = true;
+        var vencimento = DateOnly.FromDateTime(_vencimento ?? DateTime.Today);
+        var resposta = await Api.LancarDespesaAsync(new DadosDaNovaDespesa(_descricao, _valor, vencimento, _donoId));
+        _errosDaNova = resposta.Erros;
+        if (resposta.DeuCerto)
+        {
+            _descricao = "";
+            _valor = 0;
+            await CarregarAsync();
+        }
+
+        _enviando = false;
+    }
+
+    private void ComecarPagamento(DespesaDto conta)
+    {
+        _pagando = conta;
+        _pagaPorId = Adultos.FirstOrDefault()?.Id ?? Guid.Empty;
+        _pagaEm = DateTime.Today;
+    }
+
+    private async Task ConfirmarPagamentoAsync()
+    {
+        _enviando = true;
+        var resposta = await Api.PagarDespesaAsync(_pagando!.Id, new DadosDoPagamento(_pagaPorId, DateOnly.FromDateTime(_pagaEm ?? DateTime.Today)));
+        _erros = resposta.Erros;
+        if (resposta.DeuCerto)
+        {
+            _pagando = null;
+            await CarregarAsync();
+        }
+
+        _enviando = false;
+    }
+
+    private async Task DesfazerAsync(DespesaDto conta)
+    {
+        _enviando = true;
+        var resposta = await Api.DesfazerPagamentoAsync(conta.Id);
+        _erros = resposta.Erros;
+        await CarregarAsync();
+        _enviando = false;
+    }
+
+    private bool PossoAlterar(DespesaDto conta) => conta.DonoId is null || conta.DonoId == MeuMembroId;
+
+    private static string Reais(decimal valor) => valor.ToString("C", PortuguesDoBrasil);
+}

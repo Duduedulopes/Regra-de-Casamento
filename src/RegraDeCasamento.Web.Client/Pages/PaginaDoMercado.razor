@@ -1,0 +1,183 @@
+@page "/mercado"
+@inject ApiDoApp Api
+@inject Sessao Sessao
+@inject NavigationManager Navegacao
+
+<PageTitle>Mercado · Regra de Casamento</PageTitle>
+
+@* Compras detalhadas: o que, quem comprou e para quê (R12), com o controle do mês (R13). Só adultos (R4). *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="mb-4">
+    <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" aria-label="Mês anterior" OnClick="@(() => MudarMesAsync(-1))" />
+    <MudText Typo="Typo.h6" Style="min-width: 12rem; text-align: center">@Formatos.MesPorExtenso(_mes)</MudText>
+    <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" aria-label="Próximo mês" OnClick="@(() => MudarMesAsync(1))" />
+</MudStack>
+
+<MensagensDeErro Erros="_erros" />
+
+@if (_resumo is not null)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.h6">Total do mês: @Reais(_resumo.Total)</MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
+                       Href="@ApiDoApp.EnderecoDaPlanilhaDoMercado(_mes.Year, _mes.Month)" Target="_blank">Baixar planilha</MudButton>
+        </MudStack>
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" Class="mt-2">
+            @foreach (var finalidade in _resumo.PorFinalidade)
+            {
+                <MudChip T="string" Variant="Variant.Outlined">@NomeDaFinalidade(finalidade.Finalidade): @Reais(finalidade.Total)</MudChip>
+            }
+            @foreach (var comprador in _resumo.PorComprador)
+            {
+                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary">@comprador.Nome: @Reais(comprador.Total)</MudChip>
+            }
+        </MudStack>
+    </MudPaper>
+}
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.subtitle1" GutterBottom="true">Compras do mês</MudText>
+    @if (_compras.Count == 0)
+    {
+        <MudText Typo="Typo.body2">Nenhuma compra neste mês.</MudText>
+    }
+    @foreach (var compra in _compras)
+    {
+        <MudExpansionPanels Elevation="0" Class="mb-1">
+            <MudExpansionPanel Text="@($"{compra.Dia:dd/MM} · {compra.Local} · {Reais(compra.Total)}")">
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    Comprado por @compra.CompradoPor · @NomeDaFinalidade(compra.Finalidade)@(compra.ParaQuem is null ? "" : $" (para {compra.ParaQuem})")
+                </MudText>
+                @foreach (var item in compra.Itens)
+                {
+                    <MudText Typo="Typo.body2">@item.Quantidade.ToString("0.###", PortuguesDoBrasil) × @item.Descricao · @Reais(item.ValorUnitario) = @Reais(item.Total)</MudText>
+                }
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    }
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudText Typo="Typo.subtitle1" GutterBottom="true">Nova compra (você é quem comprou)</MudText>
+    <MudStack Spacing="3">
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="3">
+            <MudDatePicker @bind-Date="_dia" Label="Dia" Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" />
+            <MudTextField @bind-Value="_local" Label="Local" Placeholder="Atacadão, padaria..." Variant="Variant.Outlined" />
+            <MudSelect T="FinalidadeDaCompraDto" @bind-Value="_finalidade" Label="Para quê" Variant="Variant.Outlined" Style="min-width: 12rem">
+                @foreach (var finalidade in Enum.GetValues<FinalidadeDaCompraDto>())
+                {
+                    <MudSelectItem Value="finalidade">@NomeDaFinalidade(finalidade)</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_finalidade == FinalidadeDaCompraDto.Pessoal)
+            {
+                <MudSelect T="Guid?" @bind-Value="_paraQuemId" Label="Para quem" Variant="Variant.Outlined" Style="min-width: 10rem">
+                    @foreach (var membro in _membros)
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)membro.Id)">@membro.Nome</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+        </MudStack>
+
+        @foreach (var item in _itens)
+        {
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" AlignItems="AlignItems.Center">
+                <MudTextField @bind-Value="item.Descricao" Label="Item" Variant="Variant.Outlined" />
+                <MudNumericField T="decimal" @bind-Value="item.Quantidade" Label="Qtd." Variant="Variant.Outlined" Min="0" Style="max-width: 7rem" Culture="PortuguesDoBrasil" />
+                <MudNumericField T="decimal" @bind-Value="item.ValorUnitario" Label="Valor unitário (R$)" Variant="Variant.Outlined" Min="0" Format="N2" Culture="PortuguesDoBrasil" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="Tirar item" Disabled="_itens.Count == 1" OnClick="@(() => _itens.Remove(item))" />
+            </MudStack>
+        }
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => _itens.Add(new ItemEmEdicao()))">Mais um item</MudButton>
+
+        <MensagensDeErro Erros="_errosDaNova" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_enviando" OnClick="LancarAsync">Lançar compra</MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    private static readonly System.Globalization.CultureInfo PortuguesDoBrasil = System.Globalization.CultureInfo.GetCultureInfo("pt-BR");
+
+    private sealed class ItemEmEdicao
+    {
+        public string Descricao { get; set; } = "";
+        public decimal Quantidade { get; set; } = 1;
+        public decimal ValorUnitario { get; set; }
+    }
+
+    private DateOnly _mes = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private List<CompraDto> _compras = [];
+    private ResumoDoMercadoDto? _resumo;
+    private IReadOnlyList<MembroDto> _membros = [];
+    private IReadOnlyList<string> _erros = [];
+    private IReadOnlyList<string> _errosDaNova = [];
+    private bool _enviando;
+
+    private DateTime? _dia = DateTime.Today;
+    private string _local = "";
+    private FinalidadeDaCompraDto _finalidade = FinalidadeDaCompraDto.SuprimentoDaCasa;
+    private Guid? _paraQuemId;
+    private List<ItemEmEdicao> _itens = [new()];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eu = await Sessao.ObterAsync();
+        if (eu?.Perfil != PerfilDeAcesso.Adulto)
+        {
+            // O mercado é só dos adultos (R4); o servidor também recusa (403).
+            Navegacao.NavigateTo("");
+            return;
+        }
+
+        _membros = (await Api.MinhaFamiliaAsync()).Valor?.Membros ?? [];
+        await CarregarAsync();
+    }
+
+    private async Task MudarMesAsync(int quantos)
+    {
+        _mes = _mes.AddMonths(quantos);
+        await CarregarAsync();
+    }
+
+    private async Task CarregarAsync()
+    {
+        var compras = await Api.ComprasAsync(_mes.Year, _mes.Month);
+        var resumo = await Api.ResumoDoMercadoAsync(_mes.Year, _mes.Month);
+        _erros = [.. compras.Erros, .. resumo.Erros];
+        _compras = compras.Valor ?? [];
+        _resumo = resumo.Valor;
+    }
+
+    private async Task LancarAsync()
+    {
+        _enviando = true;
+        var dados = new DadosDaNovaCompra(
+            DateOnly.FromDateTime(_dia ?? DateTime.Today),
+            _local,
+            _finalidade,
+            _finalidade == FinalidadeDaCompraDto.Pessoal ? _paraQuemId : null,
+            _itens.Select(i => new ItemDaNovaCompra(i.Descricao, i.Quantidade, i.ValorUnitario)).ToList());
+        var resposta = await Api.LancarCompraAsync(dados);
+        _errosDaNova = resposta.Erros;
+        if (resposta.DeuCerto)
+        {
+            _local = "";
+            _itens = [new()];
+            await CarregarAsync();
+        }
+
+        _enviando = false;
+    }
+
+    private static string NomeDaFinalidade(FinalidadeDaCompraDto finalidade) => finalidade switch
+    {
+        FinalidadeDaCompraDto.SuprimentoDaCasa => "Suprimento da casa",
+        FinalidadeDaCompraDto.LancheParaTodos => "Lanche para todos",
+        FinalidadeDaCompraDto.Pessoal => "Pessoal",
+        _ => finalidade.ToString(),
+    };
+
+    private static string Reais(decimal valor) => valor.ToString("C", PortuguesDoBrasil);
+}

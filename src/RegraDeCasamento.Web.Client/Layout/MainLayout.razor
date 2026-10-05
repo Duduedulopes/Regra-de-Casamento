@@ -1,0 +1,53 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject Sessao Sessao
+@inject NavigationManager Navegacao
+
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Color="Color.Primary">
+        <MudText Typo="Typo.h6" Class="mr-4">Regra de Casamento</MudText>
+        @if (Sessao.EhAdulto && Sessao.TemFamilia)
+        {
+            @* Atalhos só para adultos; o servidor também recusa (403) quem não for. *@
+            <MudButton Href="familia" Color="Color.Inherit">Família</MudButton>
+            <MudButton Href="financas" Color="Color.Inherit">Finanças</MudButton>
+            <MudButton Href="mercado" Color="Color.Inherit">Mercado</MudButton>
+        }
+        <MudSpacer />
+        @if (Sessao.Logado)
+        {
+            <MudText Typo="Typo.body2" Class="mr-3">@Sessao.NomeParaMostrar</MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Inherit" OnClick="SairAsync">Sair</MudButton>
+        }
+    </MudAppBar>
+    <MudMainContent Class="pt-16">
+        <MudContainer MaxWidth="MaxWidth.Small" Class="py-6">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Aconteceu um erro inesperado.
+    <a href="." class="reload">Recarregar</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    protected override void OnInitialized() => Sessao.Mudou += AoMudarASessao;
+
+    private void AoMudarASessao() => InvokeAsync(StateHasChanged);
+
+    private async Task SairAsync()
+    {
+        await Sessao.SairAsync();
+        Navegacao.NavigateTo("entrar");
+    }
+
+    public void Dispose() => Sessao.Mudou -= AoMudarASessao;
+}

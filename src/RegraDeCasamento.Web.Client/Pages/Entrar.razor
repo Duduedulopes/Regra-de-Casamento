@@ -1,0 +1,59 @@
+@page "/entrar"
+@inject ApiDoApp Api
+@inject Sessao Sessao
+@inject NavigationManager Navegacao
+
+<PageTitle>Entrar · Regra de Casamento</PageTitle>
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h5" GutterBottom="true">Entrar</MudText>
+
+    <MudTabs Elevation="0" ApplyEffectsToContainer="true" TabPanelsClass="pt-4">
+        <MudTabPanel Text="Adulto">
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_email" Label="E-mail" InputType="InputType.Email" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_senha" Label="Senha" InputType="InputType.Password" Variant="Variant.Outlined" />
+                <MensagensDeErro Erros="_erros" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_enviando" OnClick="EntrarAdultoAsync">Entrar</MudButton>
+                <MudText Typo="Typo.body2">Ainda não tem conta? <MudLink Href="cadastro">Cadastre-se</MudLink></MudText>
+            </MudStack>
+        </MudTabPanel>
+        <MudTabPanel Text="Criança">
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_codigo" Label="Código da família" Variant="Variant.Outlined" HelperText="Peça para um adulto da família." />
+                <MudTextField @bind-Value="_apelido" Label="Seu apelido" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_pin" Label="PIN" InputType="InputType.Password" Variant="Variant.Outlined" HelperText="De 4 a 6 números." />
+                <MensagensDeErro Erros="_erros" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_enviando" OnClick="EntrarCriancaAsync">Entrar</MudButton>
+            </MudStack>
+        </MudTabPanel>
+    </MudTabs>
+</MudPaper>
+
+@code {
+    private string _email = "";
+    private string _senha = "";
+    private string _codigo = "";
+    private string _apelido = "";
+    private string _pin = "";
+    private IReadOnlyList<string> _erros = [];
+    private bool _enviando;
+
+    private Task EntrarAdultoAsync() => EntrarAsync(() => Api.EntrarAsync(new DadosDeLogin(_email, _senha)));
+
+    private Task EntrarCriancaAsync() => EntrarAsync(() => Api.EntrarCriancaAsync(new DadosDeLoginDaCrianca(_codigo, _apelido, _pin)));
+
+    private async Task EntrarAsync(Func<Task<Resposta<bool>>> entrar)
+    {
+        _enviando = true;
+        var resposta = await entrar();
+        _enviando = false;
+        _erros = resposta.Erros;
+
+        if (resposta.DeuCerto)
+        {
+            await Sessao.RecarregarAsync();
+            Navegacao.NavigateTo("");
+        }
+    }
+}

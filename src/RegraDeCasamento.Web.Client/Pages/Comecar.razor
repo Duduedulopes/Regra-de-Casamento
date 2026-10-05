@@ -1,0 +1,107 @@
+@page "/comecar"
+@inject ApiDoApp Api
+@inject Sessao Sessao
+@inject NavigationManager Navegacao
+
+<PageTitle>Começar · Regra de Casamento</PageTitle>
+
+<MudStack Spacing="4">
+    <MudText Typo="Typo.h5">Bem-vindo! Falta só a família.</MudText>
+
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudText Typo="Typo.h6" GutterBottom="true">Criar uma família</MudText>
+        <MudText Typo="Typo.body2" Class="mb-3">Você vira o primeiro adulto e recebe o código para passar ao outro adulto.</MudText>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_nomeDaFamilia" Label="Nome da família" Placeholder="Família Silva" Variant="Variant.Outlined" />
+            <MudTextField @bind-Value="_seuNomeAoCriar" Label="Seu nome" Variant="Variant.Outlined" />
+            <MensagensDeErro Erros="_errosAoCriar" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_enviando" OnClick="CriarAsync">Criar família</MudButton>
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudText Typo="Typo.h6" GutterBottom="true">Entrar numa família</MudText>
+        @if (_pedidoEnviado)
+        {
+            <MudAlert Severity="Severity.Info" Class="mb-3">
+                Pedido enviado. Assim que um adulto da família aprovar, toque em "Já fui aprovado".
+            </MudAlert>
+            <MensagensDeErro Erros="_errosAoPedir" />
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_enviando" OnClick="VerificarAprovacaoAsync">Já fui aprovado</MudButton>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">Peça o código para um adulto da família. Ele precisa aprovar o seu pedido.</MudText>
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_codigo" Label="Código da família" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_seuNomeAoPedir" Label="Seu nome" Variant="Variant.Outlined" />
+                <MensagensDeErro Erros="_errosAoPedir" />
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary" Disabled="_enviando" OnClick="PedirEntradaAsync">Pedir para entrar</MudButton>
+            </MudStack>
+        }
+    </MudPaper>
+</MudStack>
+
+@code {
+    private string _nomeDaFamilia = "";
+    private string _seuNomeAoCriar = "";
+    private string _codigo = "";
+    private string _seuNomeAoPedir = "";
+    private IReadOnlyList<string> _errosAoCriar = [];
+    private IReadOnlyList<string> _errosAoPedir = [];
+    private bool _pedidoEnviado;
+    private bool _enviando;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eu = await Sessao.ObterAsync();
+        if (eu is null)
+        {
+            Navegacao.NavigateTo("entrar");
+        }
+        else if (eu.FamiliaId is not null)
+        {
+            Navegacao.NavigateTo("");
+        }
+    }
+
+    private async Task CriarAsync()
+    {
+        _enviando = true;
+        var resposta = await Api.CriarFamiliaAsync(new DadosDaNovaFamilia(_nomeDaFamilia, _seuNomeAoCriar));
+        _enviando = false;
+        _errosAoCriar = resposta.Erros;
+
+        if (resposta.DeuCerto)
+        {
+            await Sessao.RecarregarAsync();
+            Navegacao.NavigateTo("familia");
+        }
+    }
+
+    private async Task PedirEntradaAsync()
+    {
+        _enviando = true;
+        var resposta = await Api.PedirEntradaAsync(new DadosDoPedidoDeEntrada(_codigo, _seuNomeAoPedir));
+        _enviando = false;
+        _errosAoPedir = resposta.Erros;
+        _pedidoEnviado = resposta.DeuCerto;
+    }
+
+    private async Task VerificarAprovacaoAsync()
+    {
+        _enviando = true;
+        await Api.AtualizarLoginAsync();
+        await Sessao.RecarregarAsync();
+        _enviando = false;
+
+        if (Sessao.TemFamilia)
+        {
+            Navegacao.NavigateTo("familia");
+        }
+        else
+        {
+            _errosAoPedir = ["Ainda não foi aprovado. Peça para um adulto da família aprovar o seu pedido."];
+        }
+    }
+}

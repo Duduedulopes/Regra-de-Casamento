@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+modelos/
+
+# Saida do monitor em tempo de execucao — cresce sozinha, nao e fonte
+dados/modelos_recebidos.jsonl
+dados/correcoes_de_teste.jsonl
+
+# Modelos de LLM baixados (~1 GB) - nao vao para o Git
+*.gguf
+
+# Saida do dotnet build da prova em C#
+bin/
+obj/

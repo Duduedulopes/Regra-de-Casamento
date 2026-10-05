@@ -1,0 +1,71 @@
+@page "/financas"
+@using System.Globalization
+@using RegraDeCasamento.Web.Client.Financas
+@inject ApiDoApp Api
+@inject Sessao Sessao
+@inject NavigationManager Navegacao
+
+<PageTitle>Finanças · Regra de Casamento</PageTitle>
+
+@if (_adultos is null)
+{
+    <MensagensDeErro Erros="_erros" />
+    @if (_erros.Count == 0)
+    {
+        <MudProgressCircular Indeterminate="true" />
+    }
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.Center" Class="mb-4">
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" aria-label="Mês anterior" OnClick="@(() => MudarMes(-1))" />
+        <MudText Typo="Typo.h6" Style="min-width: 12rem; text-align: center">@NomeDoMes</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" aria-label="Próximo mês" OnClick="@(() => MudarMes(1))" />
+    </MudStack>
+
+    <MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4">
+        <MudTabPanel Text="Contas">
+            <ContasDoMes Ano="_mes.Year" Mes="_mes.Month" Adultos="_adultos" MeuMembroId="_meuMembroId" />
+        </MudTabPanel>
+        <MudTabPanel Text="Rendas">
+            <RendasDaFamilia Adultos="_adultos" MeuMembroId="_meuMembroId" />
+        </MudTabPanel>
+        <MudTabPanel Text="Dívidas">
+            <DividasDaFamilia MeuMembroId="_meuMembroId" MeuNome="@_meuNome" />
+        </MudTabPanel>
+        <MudTabPanel Text="Contribuição">
+            <ContribuicaoDoMesCard Ano="_mes.Year" Mes="_mes.Month" />
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    private static readonly CultureInfo PortuguesDoBrasil = CultureInfo.GetCultureInfo("pt-BR");
+
+    private DateOnly _mes = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private IReadOnlyList<MembroDto>? _adultos;
+    private IReadOnlyList<string> _erros = [];
+    private Guid _meuMembroId;
+    private string _meuNome = "";
+
+    private string NomeDoMes => Formatos.MesPorExtenso(_mes);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eu = await Sessao.ObterAsync();
+        if (eu?.Perfil != PerfilDeAcesso.Adulto)
+        {
+            // Finanças são só dos adultos (R4); o servidor também recusa (403).
+            Navegacao.NavigateTo("");
+            return;
+        }
+
+        var familia = await Api.MinhaFamiliaAsync();
+        _erros = familia.Erros;
+        _meuMembroId = eu.MembroId ?? Guid.Empty;
+        _meuNome = familia.Valor?.Membros.FirstOrDefault(m => m.Id == _meuMembroId)?.Nome ?? "";
+        _adultos = familia.Valor?.Membros.Where(m => m.Perfil == PerfilDeAcesso.Adulto).ToList();
+    }
+
+    private void MudarMes(int quantos) => _mes = _mes.AddMonths(quantos);
+}

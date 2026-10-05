@@ -1,0 +1,48 @@
+@inject ApiDoApp Api
+
+@* Quanto cada adulto pagou das contas da casa no mês (R9). É só registro: não existe dívida entre o casal. *@
+
+<MensagensDeErro Erros="_erros" />
+
+@if (_contribuicao is not null)
+{
+    <MudText Typo="Typo.body2" Class="mb-4">
+        Contas da casa pagas no mês: <b>@Reais(_contribuicao.TotalDaCasa)</b>. É só um registro de quem pagou o quê; não existe dívida entre o casal.
+    </MudText>
+
+    @foreach (var adulto in _contribuicao.Adultos)
+    {
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-3">
+            <MudText>@adulto.Nome</MudText>
+            <MudText>@Reais(adulto.Valor) · @adulto.Porcentagem.ToString("0.0", PortuguesDoBrasil)%</MudText>
+        </MudStack>
+        <MudProgressLinear Color="Color.Primary" Size="Size.Large" Rounded="true" Value="@((double)adulto.Porcentagem)" />
+    }
+
+    <MudButton Class="mt-6" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
+               Href="@ApiDoApp.EnderecoDaPlanilhaDeContribuicao(Ano, Mes)" Target="_blank">
+        Baixar planilha
+    </MudButton>
+}
+
+@code {
+    private static readonly System.Globalization.CultureInfo PortuguesDoBrasil = System.Globalization.CultureInfo.GetCultureInfo("pt-BR");
+
+    [Parameter, EditorRequired]
+    public int Ano { get; set; }
+
+    [Parameter, EditorRequired]
+    public int Mes { get; set; }
+
+    private ContribuicaoDoMesDto? _contribuicao;
+    private IReadOnlyList<string> _erros = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var resposta = await Api.ContribuicaoAsync(Ano, Mes);
+        _erros = resposta.Erros;
+        _contribuicao = resposta.Valor;
+    }
+
+    private static string Reais(decimal valor) => valor.ToString("C", PortuguesDoBrasil);
+}

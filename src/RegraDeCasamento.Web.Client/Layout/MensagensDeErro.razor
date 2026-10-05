@@ -1,0 +1,10 @@
+@* Mostra as mensagens que a API devolveu (dado inválido ou regra que não deixou). *@
+@foreach (var erro in Erros)
+{
+    <MudAlert Severity="Severity.Error" Dense="true">@erro</MudAlert>
+}
+
+@code {
+    [Parameter]
+    public IReadOnlyList<string> Erros { get; set; } = [];
+}

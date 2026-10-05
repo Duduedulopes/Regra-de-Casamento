@@ -1,0 +1,132 @@
+@inject ApiDoApp Api
+
+@* As rendas da família, com dono (R6), tipo e dia de recebimento (R7). *@
+
+<MensagensDeErro Erros="_erros" />
+
+@if (_rendas.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="mb-4">Nenhuma renda lançada.</MudText>
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true" Class="mb-4">
+        <thead>
+            <tr><th>Renda</th><th>Valor</th><th>De quem</th><th>Tipo</th><th>Recebe</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var renda in _rendas)
+            {
+                <tr>
+                    <td>@renda.Descricao</td>
+                    <td>@renda.Valor.ToString("C", PortuguesDoBrasil)</td>
+                    <td>@renda.Dono</td>
+                    <td>@NomeDoTipo(renda)</td>
+                    <td>@(renda.EmDiaUtil ? $"{renda.DiaDeRecebimento}º dia útil" : $"dia {renda.DiaDeRecebimento}")</td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+<MudText Typo="Typo.subtitle1" GutterBottom="true">Nova renda</MudText>
+<MudStack Spacing="3">
+    <MudTextField @bind-Value="_descricao" Label="Descrição" Placeholder="Salário, comissão, vale-alimentação..." Variant="Variant.Outlined" />
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="3">
+        <MudNumericField T="decimal" @bind-Value="_valor" Label="Valor (R$)" Variant="Variant.Outlined" Min="0" Format="N2" Culture="PortuguesDoBrasil" />
+        <MudSelect T="Guid?" @bind-Value="_donoId" Label="De quem é" Variant="Variant.Outlined" Style="min-width: 10rem">
+            @* Cada um lança só o que é da casa ou o que é seu (R37). *@
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Casa</MudSelectItem>
+            <MudSelectItem T="Guid?" Value="@((Guid?)MeuMembroId)">Minha</MudSelectItem>
+        </MudSelect>
+        <MudSelect T="TipoDeRendaDto" @bind-Value="_tipo" Label="Tipo" Variant="Variant.Outlined" Style="min-width: 12rem">
+            @foreach (var tipo in Enum.GetValues<TipoDeRendaDto>())
+            {
+                <MudSelectItem Value="tipo">@NomeDoTipo(tipo)</MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="3" AlignItems="AlignItems.Center">
+        <MudNumericField T="int" @bind-Value="_dia" Label="Dia de recebimento" Variant="Variant.Outlined" Min="1" Max="31" />
+        <MudCheckBox T="bool" @bind-Value="_emDiaUtil" Label="É dia útil (ex.: 5º dia útil)" />
+        @if (_tipo == TipoDeRendaDto.Temporaria)
+        {
+            <MudDatePicker @bind-Date="_dataDeFim" Label="Recebe até" Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" />
+        }
+        @if (_tipo == TipoDeRendaDto.BeneficioDeUsoRestrito)
+        {
+            <MudTextField @bind-Value="_uso" Label="Só pode ser usado para" Placeholder="comida" Variant="Variant.Outlined" />
+        }
+    </MudStack>
+    <MensagensDeErro Erros="_errosDaNova" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_enviando" OnClick="LancarAsync">Lançar renda</MudButton>
+</MudStack>
+
+@code {
+    private static readonly System.Globalization.CultureInfo PortuguesDoBrasil = System.Globalization.CultureInfo.GetCultureInfo("pt-BR");
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MembroDto> Adultos { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public Guid MeuMembroId { get; set; }
+
+    private List<RendaDto> _rendas = [];
+    private IReadOnlyList<string> _erros = [];
+    private IReadOnlyList<string> _errosDaNova = [];
+    private bool _enviando;
+
+    private string _descricao = "";
+    private decimal _valor;
+    private Guid? _donoId;
+    private TipoDeRendaDto _tipo = TipoDeRendaDto.Fixa;
+    private int _dia = 5;
+    private bool _emDiaUtil;
+    private DateTime? _dataDeFim;
+    private string _uso = "";
+
+    protected override Task OnInitializedAsync() => CarregarAsync();
+
+    private async Task CarregarAsync()
+    {
+        var resposta = await Api.RendasAsync();
+        _erros = resposta.Erros;
+        _rendas = resposta.Valor ?? [];
+    }
+
+    private async Task LancarAsync()
+    {
+        _enviando = true;
+        var dataDeFim = _dataDeFim is { } fim ? DateOnly.FromDateTime(fim) : (DateOnly?)null;
+        var resposta = await Api.LancarRendaAsync(new DadosDaNovaRenda(_descricao, _valor, _donoId, _tipo, _dia, _emDiaUtil, dataDeFim, _uso));
+        _errosDaNova = resposta.Erros;
+        if (resposta.DeuCerto)
+        {
+            _descricao = _uso = "";
+            _valor = 0;
+            _dataDeFim = null;
+            await CarregarAsync();
+        }
+
+        _enviando = false;
+    }
+
+    private static string NomeDoTipo(RendaDto renda) =>
+        renda.Tipo switch
+        {
+            TipoDeRendaDto.Temporaria when renda.DataDeFim is { } fim => $"Temporária (até {fim:dd/MM/yyyy})",
+            TipoDeRendaDto.BeneficioDeUsoRestrito => $"Benefício (só {renda.UsoRestrito})",
+            _ => NomeDoTipo(renda.Tipo),
+        };
+
+    private static string NomeDoTipo(TipoDeRendaDto tipo) =>
+        tipo switch
+        {
+            TipoDeRendaDto.Fixa => "Fixa",
+            TipoDeRendaDto.Variavel => "Variável",
+            TipoDeRendaDto.Temporaria => "Temporária",
+            TipoDeRendaDto.PensaoRecebida => "Pensão recebida",
+            TipoDeRendaDto.BeneficioDeUsoRestrito => "Benefício de uso restrito",
+            _ => tipo.ToString(),
+        };
+}

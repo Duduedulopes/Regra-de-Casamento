@@ -1,0 +1,108 @@
+@inject ApiDoApp Api
+
+@* Dívidas com banco, loja e cartão (R38). Cada parcela aparece como conta a pagar no mês dela. *@
+
+<MensagensDeErro Erros="_erros" />
+
+@if (_dividas.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="mb-4">Nenhuma dívida lançada.</MudText>
+}
+
+@foreach (var divida in _dividas)
+{
+    <MudPaper Outlined="true" Class="pa-3 mb-3">
+        <MudStack Row="true" Justify="Justify.SpaceBetween">
+            <MudText><b>@divida.Descricao</b> · @NomeDoTipo(divida.Tipo) · @divida.Dono</MudText>
+            <MudText>@divida.ParcelasPagas de @divida.NumeroDeParcelas parcelas pagas</MudText>
+        </MudStack>
+        <MudProgressLinear Color="Color.Success" Size="Size.Medium" Rounded="true" Class="my-2"
+                           Value="@(divida.NumeroDeParcelas == 0 ? 0 : 100.0 * divida.ParcelasPagas / divida.NumeroDeParcelas)" />
+        <MudText Typo="Typo.body2">Total @Reais(divida.ValorTotal) · pago @Reais(divida.ValorPago) · falta @Reais(divida.ValorQueFalta)</MudText>
+    </MudPaper>
+}
+
+<MudText Typo="Typo.subtitle1" GutterBottom="true" Class="mt-4">Nova dívida</MudText>
+<MudStack Spacing="3">
+    <MudTextField @bind-Value="_descricao" Label="Descrição" Placeholder="Geladeira, empréstimo do banco..." Variant="Variant.Outlined" />
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="3">
+        <MudSelect T="TipoDeDividaDto" @bind-Value="_tipo" Label="Tipo" Variant="Variant.Outlined" Style="min-width: 12rem">
+            @foreach (var tipo in Enum.GetValues<TipoDeDividaDto>())
+            {
+                <MudSelectItem Value="tipo">@NomeDoTipo(tipo)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudNumericField T="decimal" @bind-Value="_valorTotal" Label="Valor total (R$)" Variant="Variant.Outlined" Min="0" Format="N2" Culture="PortuguesDoBrasil" />
+        <MudNumericField T="int" @bind-Value="_parcelas" Label="Parcelas" Variant="Variant.Outlined" Min="1" Max="120" />
+        <MudDatePicker @bind-Date="_primeiroVencimento" Label="1º vencimento" Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" />
+        <MudSelect T="Guid?" @bind-Value="_donoId" Label="De quem é" Variant="Variant.Outlined" Style="min-width: 10rem">
+            @* Cada um lança só o que é da casa ou o que é seu (R37). *@
+            <MudSelectItem T="Guid?" Value="@((Guid?)MeuMembroId)">Minha (@MeuNome)</MudSelectItem>
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Casa</MudSelectItem>
+        </MudSelect>
+    </MudStack>
+    <MensagensDeErro Erros="_errosDaNova" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_enviando" OnClick="LancarAsync">Lançar dívida</MudButton>
+</MudStack>
+
+@code {
+    private static readonly System.Globalization.CultureInfo PortuguesDoBrasil = System.Globalization.CultureInfo.GetCultureInfo("pt-BR");
+
+    [Parameter, EditorRequired]
+    public Guid MeuMembroId { get; set; }
+
+    [Parameter]
+    public string MeuNome { get; set; } = "";
+
+    private List<DividaDto> _dividas = [];
+    private IReadOnlyList<string> _erros = [];
+    private IReadOnlyList<string> _errosDaNova = [];
+    private bool _enviando;
+
+    private string _descricao = "";
+    private TipoDeDividaDto _tipo = TipoDeDividaDto.CompraParcelada;
+    private decimal _valorTotal;
+    private int _parcelas = 1;
+    private DateTime? _primeiroVencimento = DateTime.Today;
+    private Guid? _donoId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _donoId = MeuMembroId;
+        await CarregarAsync();
+    }
+
+    private async Task CarregarAsync()
+    {
+        var resposta = await Api.DividasAsync();
+        _erros = resposta.Erros;
+        _dividas = resposta.Valor ?? [];
+    }
+
+    private async Task LancarAsync()
+    {
+        _enviando = true;
+        var resposta = await Api.LancarDividaAsync(new DadosDaNovaDivida(
+            _descricao, _tipo, _valorTotal, _parcelas, DateOnly.FromDateTime(_primeiroVencimento ?? DateTime.Today), _donoId));
+        _errosDaNova = resposta.Erros;
+        if (resposta.DeuCerto)
+        {
+            _descricao = "";
+            _valorTotal = 0;
+            _parcelas = 1;
+            await CarregarAsync();
+        }
+
+        _enviando = false;
+    }
+
+    private static string NomeDoTipo(TipoDeDividaDto tipo) => tipo switch
+    {
+        TipoDeDividaDto.CartaoDeCredito => "Cartão de crédito",
+        TipoDeDividaDto.Emprestimo => "Empréstimo",
+        TipoDeDividaDto.CompraParcelada => "Compra parcelada",
+        _ => tipo.ToString(),
+    };
+
+    private static string Reais(decimal valor) => valor.ToString("C", PortuguesDoBrasil);
+}
